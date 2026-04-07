@@ -1,7 +1,21 @@
 # Beyond Homophily: Benchmarking and Enhancing Structural Explainability in Heterophilic Graph Neural Networks
 
-This repository is designed to benchmark existing GNN explainers (like GNNExplainer and PGExplainer) on heterophilic graphs and introduce a modified objective function to explicitly account for "disassortative mixing" or incorporate node feature importance more heavily.
+This repository is designed to benchmark existing GNN explainers on heterophilic graphs, proving they "go blind" when the "birds of a feather" assumption breaks, and introduces a mathematically modified objective function to explicitly reward explaining dissimilar connections ("opposites attract").
 
+## The Core Mission
+Our fundamental goal is to fix a critical "blind spot" in AI network transparency. If a graph neural network flags a transaction as fraudulent, standard explainers assume the surrounding neighborhood looks identical to the fraudster. In reality, fraudsters connect to innocent victims. This project forces AI to explain these complex rules honestly.
+
+### Objective 1: The Benchmark (The "Check-up")
+Use `GraphXAI` to measure exactly how much an AI's structural explanation mathematically degrades when homophily is broken. *We prove computationally that as homophily drops, standard explainers fail to identify key structures.*
+
+### Objective 2: The Logic Shift (The "Fix")
+Shift from purely Topology-based explaining (focusing exclusively on clustered shapes) to Feature-Distance explaining. By penalizing feature resemblance inside the PyTorch `_loss` backpropagation, we force the AI to look for "important opposites."
+
+### Objective 3: Domain Expansion (The "Impact")
+Make GNNs reliable for transparent, high-stakes fields where "opposites attract" is the standard behavior:
+* **Cybersecurity & Fraud:** Detecting a thief operating among honest users.
+* **Structural Biology:** Identifying complex, dissimilar protein/molecular interactions.
+* **Social Science:** Understanding diverse information sharing versus radical echo-chamber clusters.
 ## Project Structure
 
 ```text
