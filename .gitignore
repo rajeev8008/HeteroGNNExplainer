@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch
+*.pth
+*.pt
+*.out
+
+# Data and results
+data/raw/
+data/processed/
+results/models/
+results/figures/
+*.pkl
+*.npy
+*.npz
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store

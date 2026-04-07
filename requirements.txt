@@ -1,0 +1,10 @@
+torch
+torch-geometric
+git+https://github.com/mims-harvard/GraphXAI.git
+networkx
+matplotlib
+jupyter
+pandas
+scikit-learn
+numpy
+scipy
