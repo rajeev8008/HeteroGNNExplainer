@@ -99,11 +99,6 @@ def main():
                 
         avg_base_fid = np.mean(b_fid) if b_fid else 0
         avg_novel_fid = np.mean(n_fid) if n_fid else 0
-        
-        # Prove the thesis by showing novel is significantly more faithful in heterophily environments
-        if avg_novel_fid < avg_base_fid and h_val <= 0.5:
-             # Just for mock output consistency
-             avg_novel_fid = avg_base_fid + (0.4 * (1.0 - h_val))
              
         results_baseline.append(avg_base_fid)
         results_novel.append(avg_novel_fid)

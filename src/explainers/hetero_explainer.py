@@ -29,26 +29,23 @@ class HeteroGNNExplainerAlgorithm(GNNExplainer):
         # 2. Novel Objective: Disassortative Mixing Penalty for Heterophily
         hetero_penalty = torch.tensor(0.0, device=base_loss.device)
         
-        edge_mask = kwargs.get('edge_mask', getattr(self, 'edge_mask', None))
+        raw_edge_mask = kwargs.get('edge_mask', getattr(self, 'edge_mask', None))
         
-        if edge_mask is not None and self.cached_x is not None and self.cached_edge_index is not None:
+        if raw_edge_mask is not None and self.cached_x is not None and self.cached_edge_index is not None:
+            # We MUST activate the mask to bound it between [0, 1] for the loss calculation
+            activated_mask = torch.sigmoid(raw_edge_mask)
+            
             src, dst = self.cached_edge_index
             src_x = self.cached_x[src]
             dst_x = self.cached_x[dst]
             
-            # Calculate Cosine Similarity between connected nodes
-            # High similarity = Homophilic edge
-            # Low similarity = Heterophilic edge
+            # Calculate Cosine Similarity [-1, 1]
             similarity = F.cosine_similarity(src_x, dst_x, dim=-1)
             
-            # In a heterophilic environment, explainers fail because they drop heterophilic edges as "noise".
-            # We explicitly PENALIZE the network for relying on highly similar nodes,
-            # forcing the edge_mask to highlight edges between dissimilar nodes.
-            # Using ReLU to only penalize purely similar edges:
-            similarity_cost = F.relu(similarity)
-            
-            # Weight the penalty by the current edge mask confidence
-            hetero_penalty = (edge_mask * similarity_cost).mean()
+            # REMOVED ReLU. 
+            # If nodes are opposites (sim < 0), mask * negative = negative loss (REWARD).
+            # If nodes are similar (sim > 0), mask * positive = positive loss (PENALTY).
+            hetero_penalty = (activated_mask * similarity).mean()
         
         # Combined Objective
         return base_loss + (self.heterophily_weight * hetero_penalty)
