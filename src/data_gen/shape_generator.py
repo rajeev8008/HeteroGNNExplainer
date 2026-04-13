@@ -1,4 +1,5 @@
 import sys
+import os
 import torch
 import numpy as np
 import networkx as nx
@@ -7,10 +8,37 @@ from torch_geometric.utils import from_networkx
 
 # Basic fallback structure to gracefully handle if GraphXAI has not been fully configured
 try:
-    from graphxai.datasets.shape_graph import ShapeGGen
-except ImportError:
+    from graphxai.datasets import ShapeGGen
+except Exception:
     ShapeGGen = None
-    print("Warning: GraphXAI not found or not fully installed. Please run `pip install graphxai`.")
+
+if ShapeGGen is None:
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+        vendor_candidates = [
+            os.path.join(project_root, 'vendor', 'GraphXAI'),
+            os.path.join(project_root, 'vendor', 'graphxai'),
+            os.path.join(project_root, 'vendor', 'graphxai-main'),
+        ]
+        for candidate in vendor_candidates:
+            graphxai_pkg = os.path.join(candidate, 'graphxai', '__init__.py')
+            if os.path.exists(graphxai_pkg):
+                sys.path.insert(0, candidate)
+                from graphxai.datasets import ShapeGGen as _ShapeGGen
+                ShapeGGen = _ShapeGGen
+                print(f"Info: Loaded GraphXAI from local source checkout: {candidate}")
+                break
+    except Exception:
+        ShapeGGen = None
+
+if ShapeGGen is None:
+    ShapeGGen = None
+    print(
+        "Warning: GraphXAI not found or not fully installed. "
+        "Use `pip install -r requirements.txt` or clone GraphXAI into `vendor/GraphXAI`. "
+        "Note: `pip install graphxai` from PyPI is not supported."
+    )
 
 class HeteroDatasetGenerator:
     """
@@ -47,16 +75,17 @@ class HeteroDatasetGenerator:
             # We initialize the generator
             # Some versions use homophily_coef directly. 
             generator = ShapeGGen(**generator_params)
-            dataset = generator.generate()
             
-            # GraphXAI often returns a standard dict or specific dataset object
-            # We ensure we extract a proper PyG Data object.
-            if hasattr(dataset, 'get_graph'):
-                data = dataset.get_graph(use_to_networkx=False)
-            elif isinstance(dataset, Data):
-                data = dataset
+            # GraphXAI ShapeGGen constructs the graph on initialization and exposes get_graph().
+            if hasattr(generator, 'get_graph'):
+                try:
+                    data = generator.get_graph(use_fixed_split=True)
+                except TypeError:
+                    data = generator.get_graph()
+            elif isinstance(generator, Data):
+                data = generator
             else:
-                data = dataset[0]
+                data = generator[0]
                 
             return data
             

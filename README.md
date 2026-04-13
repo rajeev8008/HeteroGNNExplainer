@@ -61,3 +61,49 @@ To install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
+
+If GraphXAI import fails on Windows, use the local source checkout path:
+```bash
+git clone https://github.com/mims-harvard/GraphXAI.git vendor/GraphXAI
+pip install ipdb
+```
+
+Important:
+- Do not use `pip install graphxai` from PyPI (no official distribution there).
+- This project will automatically load GraphXAI from `vendor/GraphXAI` when available.
+
+## Reproduction Steps
+
+The full research pipeline is reproduced with the scripts below.
+
+1. Phase 1: Generate ShapeGGen datasets at multiple homophily settings.
+```bash
+python scripts/01_generate_datasets.py
+```
+
+2. Phase 2: Train base target models (GCN and GraphSAGE).
+```bash
+python scripts/02_train_models.py
+```
+
+3. Phase 3: Run baseline explainability benchmark (standard GNNExplainer behavior).
+```bash
+python scripts/03_run_benchmarks.py
+```
+
+4. Phase 4: Run the novel heterophily-aware benchmark and compare against baseline.
+```bash
+python scripts/04_run_novel_benchmark.py
+```
+
+Optional (recommended for publication):
+
+5. Hyperparameter sweep for `heterophily_weight`:
+```bash
+python scripts/05_sweep_heterophily_weight.py
+```
+
+6. Side-by-side qualitative visualization for paper figures:
+```bash
+python scripts/06_visualize_explainer_comparison.py
+```

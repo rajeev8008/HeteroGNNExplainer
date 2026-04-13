@@ -11,9 +11,13 @@ class HeteroGNNExplainerAlgorithm(GNNExplainer):
     """
     def __init__(self, epochs=100, heterophily_weight=0.5, **kwargs):
         super().__init__(epochs=epochs, **kwargs)
-        self.heterophily_weight = heterophily_weight
+        self.heterophily_weight = float(heterophily_weight)
         self.cached_x = None
         self.cached_edge_index = None
+
+    def set_heterophily_weight(self, value: float):
+        """Dynamically tune the heterophily regularization coefficient."""
+        self.heterophily_weight = float(value)
         
     def forward(self, model, x, edge_index, **kwargs):
         # Intercept the forward pass to cache features and structure
@@ -45,7 +49,9 @@ class HeteroGNNExplainerAlgorithm(GNNExplainer):
             # REMOVED ReLU. 
             # If nodes are opposites (sim < 0), mask * negative = negative loss (REWARD).
             # If nodes are similar (sim > 0), mask * positive = positive loss (PENALTY).
-            hetero_penalty = (activated_mask * similarity).mean()
+            weighted_similarity = activated_mask * similarity
+            num_edges = max(int(weighted_similarity.numel()), 1)
+            hetero_penalty = weighted_similarity.sum() / num_edges
         
         # Combined Objective
         return base_loss + (self.heterophily_weight * hetero_penalty)
@@ -70,3 +76,11 @@ def get_novel_explainer(model, heterophily_weight=0.2):
         ),
     )
     return explainer
+
+
+def set_explainer_heterophily_weight(explainer: Explainer, heterophily_weight: float):
+    """Update heterophily weight after explainer creation (useful for sweeps)."""
+    algorithm = getattr(explainer, 'algorithm', None)
+    if algorithm is None or not hasattr(algorithm, 'set_heterophily_weight'):
+        raise ValueError('Provided explainer does not support dynamic heterophily tuning.')
+    algorithm.set_heterophily_weight(heterophily_weight)
