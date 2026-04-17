@@ -135,6 +135,17 @@ def main():
     out_csv = os.path.join(out_dir, 'heterophily_weight_sweep.csv')
     df.to_csv(out_csv, index=False)
 
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(8, 5))
+    plt.plot(df['heterophily_weight'], df['mean_fidelity_plus_gap'], marker='o', linestyle='-', color='dodgerblue')
+    plt.xlabel('Heterophily Weight')
+    plt.ylabel('Mean Fidelity+ Gap (Novel - Baseline)')
+    plt.title('Effect of Heterophily Weight on Explainer Performance')
+    plt.grid(True)
+    out_plot = os.path.join(out_dir, 'heterophily_weight_sweep.png')
+    plt.savefig(out_plot, dpi=300)
+    plt.close()
+
     best_row = df.loc[df['mean_fidelity_plus_gap'].idxmax()]
 
     print('\n' + '=' * 60)

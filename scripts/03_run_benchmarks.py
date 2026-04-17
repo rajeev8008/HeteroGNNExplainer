@@ -69,11 +69,11 @@ def main():
         explainer_gcn = get_baseline_explainer(gcn, "gnn_explainer")
         explainer_sage = get_baseline_explainer(sage, "gnn_explainer")
         
-        # Test on 3 nodes (kept low for computing speed, scale up for actual paper implementation)
+        # Test on 50 nodes (kept low for computing speed, scale up for actual paper implementation)
         if hasattr(data, 'train_mask') and data.train_mask is not None:
-            test_nodes = torch.where(data.train_mask)[0][:3]
+            test_nodes = torch.where(data.train_mask)[0][:50]
         else:
-            test_nodes = torch.randperm(data.num_nodes)[:3]
+            test_nodes = torch.randperm(data.num_nodes)[:50]
         
         gcn_fid_plus_list = []
         sage_fid_plus_list = []
@@ -84,7 +84,7 @@ def main():
             # Subgraph/node prediction target
             # Need to pass target labels properly to calculate Fidelity
             # GCN Explaining
-            explanation_gcn = explainer_gcn(data.x, data.edge_index, target=data.y, index=idx)
+            explanation_gcn = explainer_gcn(data.x, data.edge_index, index=idx)
             try:
                 fid_plus_gcn, _ = fidelity(explainer_gcn, explanation_gcn)
                 gcn_fid_plus_list.append(fid_plus_gcn)
@@ -93,7 +93,7 @@ def main():
                 gcn_fid_plus_list.append(torch.tensor(0.0))
 
             # SAGE Explaining
-            explanation_sage = explainer_sage(data.x, data.edge_index, target=data.y, index=idx)
+            explanation_sage = explainer_sage(data.x, data.edge_index, index=idx)
             try:
                 fid_plus_sage, _ = fidelity(explainer_sage, explanation_sage)
                 sage_fid_plus_list.append(fid_plus_sage)
@@ -132,3 +132,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    

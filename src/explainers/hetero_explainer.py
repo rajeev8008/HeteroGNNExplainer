@@ -33,11 +33,12 @@ class HeteroGNNExplainerAlgorithm(GNNExplainer):
         # 2. Novel Objective: Disassortative Mixing Penalty for Heterophily
         hetero_penalty = torch.tensor(0.0, device=base_loss.device)
         
-        raw_edge_mask = kwargs.get('edge_mask', getattr(self, 'edge_mask', None))
+        # Access the mask parameter directly — it is not passed via kwargs
+        edge_mask = getattr(self, 'edge_mask', None)
         
-        if raw_edge_mask is not None and self.cached_x is not None and self.cached_edge_index is not None:
+        if edge_mask is not None and self.cached_x is not None and self.cached_edge_index is not None:
             # We MUST activate the mask to bound it between [0, 1] for the loss calculation
-            activated_mask = torch.sigmoid(raw_edge_mask)
+            activated_mask = torch.sigmoid(edge_mask)
             
             src, dst = self.cached_edge_index
             src_x = self.cached_x[src]

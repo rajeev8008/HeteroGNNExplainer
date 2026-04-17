@@ -49,7 +49,7 @@ def _feature_dissimilarity(x, u, v):
     return 1.0 - sim
 
 
-def _draw_subgraph(ax, data, selected_edges, title, highlight_dissimilar=False, dissim_threshold=1.2):
+def _draw_subgraph(ax, data, selected_edges, title, highlight_dissimilar=False, dissim_threshold=0.45):
     g = nx.Graph()
     for u, v, w in selected_edges:
         g.add_edge(u, v, weight=w)
@@ -155,7 +155,7 @@ def main():
             hetero_edges,
             title=f'HeteroGNNExplainer (h={h_val:.2f})',
             highlight_dissimilar=True,
-            dissim_threshold=1.2,
+            dissim_threshold=0.45,
         )
 
         fig.suptitle('Structural vs Feature-Distance Emphasis in Explanations', fontsize=13)
