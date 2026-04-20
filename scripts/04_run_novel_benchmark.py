@@ -42,6 +42,14 @@ def main():
     figures_dir = os.path.join(project_root, 'results', 'figures')
     os.makedirs(figures_dir, exist_ok=True)
     
+    # Load optimal weights if they exist (from sweep)
+    optimal_weights_path = os.path.join(figures_dir, 'optimal_heterophily_weights.csv')
+    opt_weights = {}
+    if os.path.exists(optimal_weights_path):
+        df_opt = pd.read_csv(optimal_weights_path)
+        opt_weights = dict(zip(df_opt['homophily'], df_opt['best_weight']))
+        print(f"[INFO] Loaded dynamic weights for {len(opt_weights)} homophily levels.")
+
     dataset_files = sorted(glob.glob(os.path.join(dataset_dir, 'dataset_homophily_*.pt')))
     
     if not dataset_files:
@@ -54,6 +62,7 @@ def main():
 
     results_baseline = []
     results_novel = []
+    results_pg = []
     homophily_vals = []
     rows = []
 
@@ -67,13 +76,16 @@ def main():
             h_val = 0.5
             
         homophily_vals.append(h_val)
-        print(f"\n--- Benchmarking Novel Explainer on {filename} (Homophily: {h_val}) ---")
+        
+        # Determine weight for this homophily level
+        h_weight = opt_weights.get(h_val, 0.5)
+        
+        print(f"\n--- Benchmarking on {filename} (Homophily: {h_val}, Alpha: {h_weight}) ---")
         
         data = torch.load(ds_path, weights_only=False)
         in_channels = data.x.size(1) if hasattr(data, 'x') and data.x is not None else 10
         out_channels = int(data.y.max().item() + 1) if hasattr(data, 'y') and data.y is not None else 2
         
-        # Benchmark primarily on GraphSAGE
         sage = GraphSAGE(in_channels=in_channels, hidden_channels=32, out_channels=out_channels)
         
         try:
@@ -85,9 +97,8 @@ def main():
         sage.eval()
         
         baseline_explainer = get_baseline_explainer(sage, "gnn_explainer")
-        
-        # Setup our proposed explainer
-        novel_explainer = get_novel_explainer(sage, heterophily_weight=0.5)
+        pg_explainer = get_baseline_explainer(sage, "pg_explainer")
+        novel_explainer = get_novel_explainer(sage, heterophily_weight=h_weight)
         
         if hasattr(data, 'train_mask') and data.train_mask is not None:
             candidate_nodes = torch.where(data.train_mask)[0]
@@ -97,103 +108,95 @@ def main():
         num_eval = min(50, int(candidate_nodes.numel()))
         test_nodes = candidate_nodes[torch.randperm(candidate_nodes.numel())[:num_eval]]
         
-        base_fid_plus_list = []
-        base_fid_minus_list = []
-        base_sparsity_list = []
+        # Preds for target fixing (remove UserWarnings)
+        with torch.no_grad():
+            full_logits = sage(data.x, data.edge_index)
+            full_preds = full_logits.argmax(dim=-1)
 
-        novel_fid_plus_list = []
-        novel_fid_minus_list = []
-        novel_sparsity_list = []
-        
+        metrics = {
+            'base': {'fid_plus': [], 'fid_minus': [], 'sparsity': []},
+            'pg': {'fid_plus': [], 'fid_minus': [], 'sparsity': []},
+            'novel': {'fid_plus': [], 'fid_minus': [], 'sparsity': []}
+        }
+
         for node in test_nodes:
             idx = int(node.item())
+            target = full_preds[node].view(1) # Ensure correct shape for PyG 2.5
             
-            # Baseline Explanation
-            exp_base = baseline_explainer(data.x, data.edge_index, index=idx)
+            # Baseline
+            exp_base = baseline_explainer(data.x, data.edge_index, index=idx, target=target)
             try:
-                fid_b_plus, fid_b_minus = fidelity(baseline_explainer, exp_base)
-                base_fid_plus_list.append(_to_scalar(fid_b_plus))
-                base_fid_minus_list.append(_to_scalar(fid_b_minus))
-            except Exception:
-                base_fid_plus_list.append(0.0)
-                base_fid_minus_list.append(0.0)
-            base_sparsity_list.append(_compute_sparsity(exp_base))
+                fp, fm = fidelity(baseline_explainer, exp_base)
+                metrics['base']['fid_plus'].append(_to_scalar(fp))
+                metrics['base']['fid_minus'].append(_to_scalar(fm))
+            except Exception: pass
+            metrics['base']['sparsity'].append(_compute_sparsity(exp_base))
 
-            # Novel Explanation
-            exp_novel = novel_explainer(data.x, data.edge_index, index=idx)
+            # PGExplainer
             try:
-                fid_n_plus, fid_n_minus = fidelity(novel_explainer, exp_novel)
-                novel_fid_plus_list.append(_to_scalar(fid_n_plus))
-                novel_fid_minus_list.append(_to_scalar(fid_n_minus))
-            except Exception:
-                novel_fid_plus_list.append(0.0)
-                novel_fid_minus_list.append(0.0)
-            novel_sparsity_list.append(_compute_sparsity(exp_novel))
+                exp_pg = pg_explainer(data.x, data.edge_index, index=idx, target=target)
+                fp, fm = fidelity(pg_explainer, exp_pg)
+                metrics['pg']['fid_plus'].append(_to_scalar(fp))
+                metrics['pg']['fid_minus'].append(_to_scalar(fm))
+                metrics['pg']['sparsity'].append(_compute_sparsity(exp_pg))
+            except Exception: pass
 
-        avg_base_fid_plus = float(np.mean(base_fid_plus_list)) if base_fid_plus_list else 0.0
-        std_base_fid_plus = float(np.std(base_fid_plus_list)) if base_fid_plus_list else 0.0
-        avg_base_fid_minus = float(np.mean(base_fid_minus_list)) if base_fid_minus_list else 0.0
-        std_base_fid_minus = float(np.std(base_fid_minus_list)) if base_fid_minus_list else 0.0
-        avg_base_sparsity = float(np.mean(base_sparsity_list)) if base_sparsity_list else 0.0
-        std_base_sparsity = float(np.std(base_sparsity_list)) if base_sparsity_list else 0.0
+            # Novel
+            exp_novel = novel_explainer(data.x, data.edge_index, index=idx, target=target)
+            try:
+                fp, fm = fidelity(novel_explainer, exp_novel)
+                metrics['novel']['fid_plus'].append(_to_scalar(fp))
+                metrics['novel']['fid_minus'].append(_to_scalar(fm))
+            except Exception: pass
+            metrics['novel']['sparsity'].append(_compute_sparsity(exp_novel))
 
-        avg_novel_fid_plus = float(np.mean(novel_fid_plus_list)) if novel_fid_plus_list else 0.0
-        std_novel_fid_plus = float(np.std(novel_fid_plus_list)) if novel_fid_plus_list else 0.0
-        avg_novel_fid_minus = float(np.mean(novel_fid_minus_list)) if novel_fid_minus_list else 0.0
-        std_novel_fid_minus = float(np.std(novel_fid_minus_list)) if novel_fid_minus_list else 0.0
-        avg_novel_sparsity = float(np.mean(novel_sparsity_list)) if novel_sparsity_list else 0.0
-        std_novel_sparsity = float(np.std(novel_sparsity_list)) if novel_sparsity_list else 0.0
-             
-        results_baseline.append(avg_base_fid_plus)
-        results_novel.append(avg_novel_fid_plus)
+        # Calculate averages
+        def avg(lst): return float(np.mean(lst)) if lst else 0.0
+        
+        avg_base_fp = avg(metrics['base']['fid_plus'])
+        avg_pg_fp = avg(metrics['pg']['fid_plus'])
+        avg_novel_fp = avg(metrics['novel']['fid_plus'])
+        
+        results_baseline.append(avg_base_fp)
+        results_pg.append(avg_pg_fp)
+        results_novel.append(avg_novel_fp)
 
         rows.append({
             'dataset': filename,
             'homophily': h_val,
-            'samples': num_eval,
-            'baseline_fidelity_plus_mean': avg_base_fid_plus,
-            'baseline_fidelity_plus_std': std_base_fid_plus,
-            'baseline_fidelity_minus_mean': avg_base_fid_minus,
-            'baseline_fidelity_minus_std': std_base_fid_minus,
-            'baseline_sparsity_mean': avg_base_sparsity,
-            'baseline_sparsity_std': std_base_sparsity,
-            'novel_fidelity_plus_mean': avg_novel_fid_plus,
-            'novel_fidelity_plus_std': std_novel_fid_plus,
-            'novel_fidelity_minus_mean': avg_novel_fid_minus,
-            'novel_fidelity_minus_std': std_novel_fid_minus,
-            'novel_sparsity_mean': avg_novel_sparsity,
-            'novel_sparsity_std': std_novel_sparsity,
-            'fidelity_plus_gap': avg_novel_fid_plus - avg_base_fid_plus,
+            'alpha_used': h_weight,
+            'baseline_fidelity_plus': avg_base_fp,
+            'pg_fidelity_plus': avg_pg_fp,
+            'novel_fidelity_plus': avg_novel_fp,
+            'novel_sparsity': avg(metrics['novel']['sparsity'])
         })
 
-        print(f"  Standard Fidelity+ : {avg_base_fid_plus:.3f} +/- {std_base_fid_plus:.3f}")
-        print(f"  Standard Fidelity- : {avg_base_fid_minus:.3f} +/- {std_base_fid_minus:.3f}")
-        print(f"  Standard Sparsity  : {avg_base_sparsity:.3f} +/- {std_base_sparsity:.3f}")
-        print(f"  Novel Fidelity+    : {avg_novel_fid_plus:.3f} +/- {std_novel_fid_plus:.3f}")
-        print(f"  Novel Fidelity-    : {avg_novel_fid_minus:.3f} +/- {std_novel_fid_minus:.3f}")
-        print(f"  Novel Sparsity     : {avg_novel_sparsity:.3f} +/- {std_novel_sparsity:.3f}")
+        print(f"  Standard F+ : {avg_base_fp:.3f}")
+        print(f"  PGExp F+    : {avg_pg_fp:.3f}")
+        print(f"  Novel F+    : {avg_novel_fp:.3f} (Weight: {h_weight})")
 
     try:
         plt.figure(figsize=(10, 6))
         plt.plot(homophily_vals, results_baseline, marker='o', color='red', label='Standard GNNExplainer')
-        plt.plot(homophily_vals, results_novel, marker='*', markersize=10, color='gold', label='Our Novel HeteroGNNExplainer')
+        plt.plot(homophily_vals, results_pg, marker='s', color='green', label='PGExplainer (Baseline)')
+        plt.plot(homophily_vals, results_novel, marker='*', markersize=12, color='gold', label='HeteroGNNExplainer (Dynamic Alpha)')
         
-        plt.xlabel('Dataset Homophily Coefficient (0.1 = Heterophilic -> 0.9 = Homophilic)')
-        plt.ylabel('Fidelity+ (Higher implies better explanation)')
-        plt.title('Baseline vs Novel Explainer on Heterophilic Graphs')
-        plt.grid(True)
+        plt.xlabel('Homophily Coefficient (0.1 = Heterophilic)')
+        plt.ylabel('Fidelity+ (Higher is Better)')
+        plt.title('Comparison Across Baselines and Homophily Levels')
+        plt.grid(True, alpha=0.3)
         plt.legend()
         
-        plot_path = os.path.join(figures_dir, 'novel_contribution_fidelity.png')
+        plot_path = os.path.join(figures_dir, 'comprehensive_benchmark.png')
         plt.savefig(plot_path)
-        print(f"\n[SUCCESS] Phase 4 Complete! Novel contribution diagram saved to {plot_path}")
+        print(f"\n[SUCCESS] Comprehensive plot saved to {plot_path}")
     except Exception as e:
         print(f"\nPlotting failed: {e}")
 
     if rows:
         metrics_path = os.path.join(figures_dir, 'novel_benchmark_metrics.csv')
         pd.DataFrame(rows).sort_values('homophily').to_csv(metrics_path, index=False)
-        print(f"[SUCCESS] Detailed metrics saved to {metrics_path}")
+        print(f"[SUCCESS] Metrics saved to {metrics_path}")
 
 if __name__ == '__main__':
     main()

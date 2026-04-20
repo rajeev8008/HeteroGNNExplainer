@@ -1,13 +1,13 @@
-import torch
-from torch_geometric.explain import Explainer, GNNExplainer
+from torch_geometric.explain import Explainer, GNNExplainer, PGExplainer
 
 def get_baseline_explainer(model, explainer_type="gnn_explainer"):
     """
     Returns a unified PyG Explainer wrapping the baseline model.
     """
     if explainer_type == "gnn_explainer":
-        # Epochs scale down for faster automated testing, typical is 200
         algorithm = GNNExplainer(epochs=50)
+    elif explainer_type == "pg_explainer":
+        algorithm = PGExplainer(epochs=30)
     else:
         raise ValueError(f"Unknown baseline explainer: {explainer_type}")
 

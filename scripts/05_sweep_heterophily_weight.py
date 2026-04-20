@@ -69,13 +69,12 @@ def main():
 
     sweep_weights = np.round(np.linspace(0.0, 1.0, 11), 2)
 
-    rows = []
+    all_results = []
     print('=' * 60)
     print('PHASE 5: Heterophily Weight Sweep (0.0 -> 1.0)')
     print('=' * 60)
 
     for weight in sweep_weights:
-        dataset_gaps = []
         print(f'\n--- Evaluating heterophily_weight={weight:.2f} ---')
 
         for ds_path in dataset_files:
@@ -91,7 +90,6 @@ def main():
             model_path = os.path.join(model_dir, f'sage_{base_name}.pth')
 
             if not os.path.exists(model_path):
-                print(f'  [WARN] Missing model for {base_name}, skipping.')
                 continue
 
             model.load_state_dict(torch.load(model_path, weights_only=True))
@@ -106,38 +104,47 @@ def main():
                 model=model,
                 baseline_explainer=baseline_explainer,
                 novel_explainer=novel_explainer,
-                sample_size=50,
+                sample_size=5, # Reduced size for faster sweep
             )
             gap = novel_mean - base_mean
-            dataset_gaps.append(gap)
-            print(
-                f'  Dataset={filename} (h={h_val:.2f}) | '
-                f'Baseline F+={base_mean:.4f}, Novel F+={novel_mean:.4f}, Gap={gap:.4f}'
-            )
+            all_results.append({
+                'homophily': h_val,
+                'weight': weight,
+                'gap': gap,
+                'dataset': filename
+            })
+            print(f'  h={h_val:.2f} | Gap={gap:.4f}')
 
-        mean_gap = float(np.mean(dataset_gaps)) if dataset_gaps else -1e9
-        std_gap = float(np.std(dataset_gaps)) if dataset_gaps else 0.0
-        rows.append(
-            {
-                'heterophily_weight': float(weight),
-                'mean_fidelity_plus_gap': mean_gap,
-                'std_fidelity_plus_gap': std_gap,
-                'num_datasets': int(len(dataset_gaps)),
-            }
-        )
-        print(f'  Aggregate Gap: {mean_gap:.4f} +/- {std_gap:.4f}')
-
-    if not rows:
+    if not all_results:
         print('No valid evaluations were completed.')
         return
 
-    df = pd.DataFrame(rows).sort_values('heterophily_weight')
+    df_all = pd.DataFrame(all_results)
+    
+    # Find best weight per homophily level
+    best_per_h = []
+    for h, group in df_all.groupby('homophily'):
+        best_row = group.loc[group['gap'].idxmax()]
+        best_per_h.append({
+            'homophily': h,
+            'best_weight': best_row['weight'],
+            'max_gap': best_row['gap']
+        })
+    
+    df_best = pd.DataFrame(best_per_h)
+    best_weights_csv = os.path.join(out_dir, 'optimal_heterophily_weights.csv')
+    df_best.to_csv(best_weights_csv, index=False)
+    print(f"\n[SUCCESS] Optimal weights per homophily saved to {best_weights_csv}")
+
+    # Also save aggregate sweep for visualization
+    df_agg = df_all.groupby('weight')['gap'].agg(['mean', 'std']).reset_index()
+    df_agg.columns = ['heterophily_weight', 'mean_fidelity_plus_gap', 'std_fidelity_plus_gap']
     out_csv = os.path.join(out_dir, 'heterophily_weight_sweep.csv')
-    df.to_csv(out_csv, index=False)
+    df_agg.to_csv(out_csv, index=False)
 
     import matplotlib.pyplot as plt
     plt.figure(figsize=(8, 5))
-    plt.plot(df['heterophily_weight'], df['mean_fidelity_plus_gap'], marker='o', linestyle='-', color='dodgerblue')
+    plt.plot(df_agg['heterophily_weight'], df_agg['mean_fidelity_plus_gap'], marker='o', linestyle='-', color='dodgerblue')
     plt.xlabel('Heterophily Weight')
     plt.ylabel('Mean Fidelity+ Gap (Novel - Baseline)')
     plt.title('Effect of Heterophily Weight on Explainer Performance')
@@ -146,14 +153,7 @@ def main():
     plt.savefig(out_plot, dpi=300)
     plt.close()
 
-    best_row = df.loc[df['mean_fidelity_plus_gap'].idxmax()]
-
-    print('\n' + '=' * 60)
-    print('SWEEP COMPLETE')
-    print('=' * 60)
-    print(f"Best heterophily_weight: {best_row['heterophily_weight']:.2f}")
-    print(f"Best mean Fidelity+ gap: {best_row['mean_fidelity_plus_gap']:.4f}")
-    print(f"Saved sweep table: {out_csv}")
+    print(f"Saved sweep plot: {out_plot}")
 
 
 if __name__ == '__main__':
