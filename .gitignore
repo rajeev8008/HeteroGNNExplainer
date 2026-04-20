@@ -8,11 +8,9 @@ __pycache__/
 *.pt
 *.out
 
-# Data and results
+# Data
 data/raw/
 data/processed/
-results/models/
-results/figures/
 *.pkl
 *.npy
 *.npz
